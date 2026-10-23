@@ -517,23 +517,11 @@
         <button id="loginTab" class="primary-btn" style="margin:0" onclick="showAuthMode('login')">Sign in</button>
         <button id="signupTab" class="logout-btn" onclick="showAuthMode('signup')">Create account</button>
       </div>
-        
-<input id="loginUsernameInput" type="text" placeholder="Username"
-       autocomplete="username" style="margin-bottom:10px">
-
-<div id="signupFields" class="hidden">
-  <input id="usernameInput" type="text"
-         placeholder="Username (shown on the site)"
-         autocomplete="nickname" maxlength="40"
-         style="margin-bottom:10px">
-
-  <input id="emailInput" type="email"
-         placeholder="Email address"
-         autocomplete="email" style="margin-bottom:10px">
-</div>
-
-<input id="authPassword" type="password" placeholder="Password"
-       autocomplete="current-password" style="margin-bottom:10px">
+      <div id="signupFields" class="hidden">
+        <input id="usernameInput" type="text" placeholder="Username (shown on the site)" autocomplete="nickname" maxlength="40" style="margin-bottom:10px">
+      </div>
+      <input id="emailInput" type="email" placeholder="Email address" autocomplete="email" style="margin-bottom:10px">
+      <input id="authPassword" type="password" placeholder="Password" autocomplete="current-password" style="margin-bottom:10px">
       <div id="requestCodeFields" class="hidden">
         <input id="accessCodeInput" type="password" placeholder="Access code: domain or kaka benja" autocomplete="off" style="margin-bottom:10px">
         <p style="font-size:12px;color:var(--muted);text-align:left;margin:0 0 8px">Your code only requests access. The owner must approve your account.</p>
@@ -638,35 +626,18 @@
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     let links = [], pendingDeleteId = null, authMode = 'login', currentUser = null;
 
-   function showAuthMode(mode) {
-  authMode = mode;
-
-  document.getElementById('signupFields')
-    .classList.toggle('hidden', mode !== 'signup');
-
-  document.getElementById('loginUsernameInput')
-    .classList.toggle('hidden', mode !== 'login');
-
-  document.getElementById('requestCodeFields')
-    .classList.toggle('hidden', mode !== 'signup');
-
-  document.getElementById('authSubmit').textContent =
-    mode === 'signup'
-      ? 'Create account & request access'
-      : 'Sign in';
-
-  document.getElementById('loginTab').className =
-    mode === 'login' ? 'primary-btn' : 'logout-btn';
-
-  document.getElementById('signupTab').className =
-    mode === 'signup' ? 'primary-btn' : 'logout-btn';
-
-  document.getElementById('forgotPasswordBtn')
-    .classList.toggle('hidden', mode !== 'login');
-
-  document.getElementById('loginError')
-    .classList.add('hidden');
-}
+    function showAuthMode(mode) {
+      authMode = mode;
+      document.getElementById('signupFields').classList.toggle('hidden', mode !== 'signup');
+      document.getElementById('requestCodeFields').classList.toggle('hidden', mode !== 'signup');
+      document.getElementById('authSubmit').textContent = mode === 'signup' ? 'Create account & request access' : 'Sign in';
+      document.getElementById('loginTab').className = mode === 'login' ? 'primary-btn' : 'logout-btn';
+      document.getElementById('loginTab').style.margin = '0';
+      document.getElementById('signupTab').className = mode === 'signup' ? 'primary-btn' : 'logout-btn';
+      document.getElementById('signupTab').style.margin = '0';
+      document.getElementById('forgotPasswordBtn').classList.toggle('hidden', mode !== 'login');
+      document.getElementById('loginError').classList.add('hidden');
+    }
 
     function showMessage(message, isError=true) {
       const el = document.getElementById('loginError');
@@ -674,148 +645,57 @@
       el.style.color = isError ? 'var(--danger)' : '#15803d';
     }
 
-    
-async function submitAuth() {
-  const password = document.getElementById('authPassword').value;
-  const button = document.getElementById('authSubmit');
-
-  document.getElementById('loginError').classList.add('hidden');
-
-  if (!password) {
-    showMessage('Enter your password.');
-    return;
-  }
-
-  button.disabled = true;
-  button.textContent = 'Please wait…';
-
-  try {
-    if (authMode === 'signup') {
-      const username = document.getElementById('usernameInput').value.trim();
+    async function submitAuth() {
       const email = document.getElementById('emailInput').value.trim();
-      const code = document.getElementById('accessCodeInput').value.trim().toLowerCase();
-
-      if (!username) throw new Error('Choose a username.');
-      if (!email) throw new Error('Enter your email address.');
-      if (!['domain', 'kaka benja'].includes(code)) {
-        throw new Error('Use the correct access code.');
-      }
-
-      const { data, error } = await supabaseClient.auth.signUp({
-        email,
-        password,
-        options: {
-          data: {
-            username: username.toLowerCase(),
-            display_name: username,
-            requested_role: code === 'kaka benja' ? 'admin' : 'visitor'
+      const password = document.getElementById('authPassword').value;
+      const errorEl = document.getElementById('loginError'); errorEl.classList.add('hidden');
+      if (!email || !password) return showMessage('Enter your email and password.');
+      const button = document.getElementById('authSubmit'); button.disabled = true; button.textContent = 'Please wait…';
+      try {
+        if (authMode === 'signup') {
+          const username = document.getElementById('usernameInput').value.trim();
+          const code = document.getElementById('accessCodeInput').value.trim().toLowerCase();
+          if (!username) throw new Error('Choose a username.');
+          if (!['domain','kaka benja'].includes(code)) throw new Error('Use the visitor code or admin-request code.');
+          const { data, error } = await supabaseClient.auth.signUp({ email, password, options: { data: { username, display_name: username, requested_role: code === 'kaka benja' ? 'admin' : 'visitor' } } });
+          if (error) throw error;
+          if (!data.user) throw new Error('Account creation did not finish. Try again.');
+          if (!data.session) {
+            showMessage('Account created. Check your email to confirm it, then sign in and submit your access request.', false);
+            return;
           }
+          currentUser = data.user;
+          const { error: reqError } = await supabaseClient.from('access_requests').upsert({ user_id: data.user.id, display_name: username, requested_role: code === 'kaka benja' ? 'admin' : 'visitor', status: 'pending' });
+          if (reqError) throw reqError;
+          showMessage('Account created and access request sent. Wait for the owner to approve you.', false);
+          return;
         }
-      });
-
-      if (error) throw error;
-      if (!data.user) throw new Error('Account creation failed.');
-
-      if (!data.session) {
-        showMessage('Account created! Check your email to confirm your account, then sign in.', false);
-        return;
-      }
-
-      currentUser = data.user;
-
-      const { error: requestError } = await supabaseClient
-        .from('access_requests')
-        .upsert({
-          user_id: data.user.id,
-          display_name: username,
-          requested_role: code === 'kaka benja' ? 'admin' : 'visitor',
-          status: 'pending'
-        });
-
-      if (requestError) throw requestError;
-
-      showMessage('Account created. Wait for the owner to approve your access.', false);
-      return;
+        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        currentUser = data.user;
+        await routeSignedInUser();
+      } catch (err) { showMessage(err.message || 'Something went wrong.'); }
+      finally { button.disabled = false; button.textContent = authMode === 'signup' ? 'Create account & request access' : 'Sign in'; }
     }
 
-    const username = document.getElementById('loginUsernameInput').value.trim();
-
-    if (!username) throw new Error('Enter your username.');
-
-    const { data, error } = await supabaseClient.functions.invoke(
-      'username-login',
-      { body: { username, password } }
-    );
-
-    if (error || !data?.session) {
-      throw new Error(data?.error || 'Login failed. Check your username and password.');
+    async function resetPassword() {
+      const email = document.getElementById('emailInput').value.trim();
+      if (!email) return showMessage('Enter your email address first.');
+      const { error } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+      if (error) return showMessage(error.message);
+      showMessage('Password reset email sent if that account exists. Check your inbox.', false);
     }
-
-    const { data: sessionData, error: sessionError } =
-      await supabaseClient.auth.setSession({
-        access_token: data.session.access_token,
-        refresh_token: data.session.refresh_token
-      });
-
-    if (sessionError) throw sessionError;
-
-    currentUser = sessionData.user || data.session.user;
-    await routeSignedInUser();
-
-  } catch (err) {
-    showMessage(err.message || 'Something went wrong.');
-  } finally {
-    button.disabled = false;
-    button.textContent = authMode === 'signup'
-      ? 'Create account & request access'
-      : 'Sign in';
-  }
-}
-
-
-   
-async function resetPassword() {
-  const email = prompt(
-    'Enter the email address you used to create your account:'
-  );
-
-  if (email === null || !email.trim()) return;
-
-  const { error } = await supabaseClient.auth.resetPasswordForEmail(
-    email.trim(),
-    {
-      redirectTo: location.origin + location.pathname
-    }
-  );
-
-  if (error) {
-    showMessage(error.message);
-    return;
-  }
-
-  showMessage(
-    'If an account uses that email, a password reset message will be sent.',
-    false
-  );
-}
-
 
     async function routeSignedInUser() {
       const { data: owner, error: ownerErr } = await supabaseClient.rpc('is_owner');
       if (!ownerErr && owner === true) {
         const { data: approved, error: accessErr } = await supabaseClient.from('access_whitelist').select('approved,access_role').eq('user_id', currentUser.id).maybeSingle();
         if (!accessErr && approved?.approved) {
+          const code = document.getElementById('accessCodeInput').value.trim().toLowerCase();
+          if (code === 'destroy') return openOwnerGate();
           document.getElementById('loginScreen').classList.remove('hidden');
-document.getElementById('dashboard').classList.add('hidden');
-document.getElementById('ownerPanel').classList.add('hidden');
-
-showMessage(
-  'Owner account verified. Use the button below to open the private owner panel.',
-  false
-);
-
-addOwnerShortcut();
-return;
+          showMessage('Owner account verified. Use the button below to open the private owner panel.', false);
+          addOwnerShortcut(); return;
         }
       }
       const { data: row, error } = await supabaseClient.from('access_whitelist').select('approved,access_role').eq('user_id', currentUser.id).maybeSingle();
